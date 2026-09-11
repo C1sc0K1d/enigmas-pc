@@ -1,59 +1,58 @@
-# EnigmasPc
+# PRESOS — computadores de enigmas
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.1.8.
+Front-end Angular com terminal verde, efeito discreto de monitor CRT, histórico de entrada/saída e layout para desktop e celular.
 
-## Development server
+## Executar
 
-To start a local development server, run:
-
-```bash
-ng serve
+```sh
+npm install
+npm start
 ```
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+Abra `http://localhost:4200`. Rotas disponíveis:
 
-## Code scaffolding
+- `/inno_m1nvl`
+- `/sultao_d`
+- `/tec_la`
+- `/nkai_a`
+- `/grd_s0nhadr`
+- `/chma_vva`
+- `/h_colinas`
+- `/caosra_st`
+- `/sr_grdabs`
+- `/fnt_primdal`
 
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+Os nomes exibidos são iguais aos caminhos. A página inicial abre `inno_m1nvl`. As regras são provisórias: `sultao_d` inverte o texto (porta → atrop); os demais usam o deslocamento de três letras (abc → def). Cada terminal tem configuração independente para receber seu enigma. Ainda não há frase-alvo nem validação de vitória.
 
-```bash
-ng generate component component-name
+## Criar outro computador
+
+Adicione um objeto ao array `COMPUTERS` em `src/app/computers.ts`:
+
+```ts
+{
+  id: 'laboratorio', // caminho único da página, sem barras
+  name: 'LAB-03',
+  location: 'BLOCO C / LABORATÓRIO',
+  serial: 'PRS-003-C',
+  welcome: 'Escreva sua mensagem.',
+  encode: (text) => text.toUpperCase(),
+}
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+A rota `/laboratorio` será criada automaticamente. O componente `Terminal` recebe uma `ComputerConfig`: aparência e interação ficam separadas das regras. As funções de codificação devem ser síncronas, retornar texto e aceitar qualquer entrada de até 2.000 caracteres.
 
-```bash
-ng generate --help
+## Interação
+
+- Enter ou botão ↵: envia uma palavra ou frase.
+- ↑ / ↓: recupera entradas anteriores e restaura o rascunho ao voltar ao final.
+- `/ajuda` ou Ajuda: mostra instruções.
+- `/limpar` ou Limpar: limpa apenas o histórico visível, preservando contador e entradas recuperáveis pelas setas.
+
+O histórico fica apenas na memória da sessão e reinicia ao recarregar ou mudar de computador. A codificação de exemplo do primeiro terminal altera apenas A–Z/a–z; acentos, números e pontuação são preservados. Toda a lógica está no front-end e pode ser inspecionada pelo navegador.
+
+## Verificar
+
+```sh
+npm run build
+npm test -- --watch=false
 ```
-
-## Building
-
-To build the project run:
-
-```bash
-ng build
-```
-
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
-
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.

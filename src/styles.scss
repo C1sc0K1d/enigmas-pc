@@ -1,1 +1,4 @@
-/* You can add global styles to this file, and also import other style files */
+* { box-sizing: border-box; }
+html { color-scheme: dark; }
+body { margin: 0; min-width: 320px; min-height: 100dvh; background: radial-gradient(ellipse at 50% 10%, #1a251e, #0c110e 65%); font-family: Consolas, 'Courier New', monospace; }
+::selection { background: #8df5a1; color: #09140c; }

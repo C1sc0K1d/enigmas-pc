@@ -1,0 +1,44 @@
+<main class="station">
+  <header class="masthead">
+    <span class="brand"><span class="brand-mark" aria-hidden="true">▥</span> E.P.D.D.C</span>
+    <span class="network">REDE INTERNA <span class="connection"><i></i> CONECTADO</span></span>
+  </header>
+  <section class="computer" aria-label="Computador de enigmas">
+    <div class="case-top"><span>ESTAÇÃO DE COMUNICAÇÃO</span><span>{{ computer().serial }}</span></div>
+    <div class="window">
+      <header class="titlebar">
+        <span><span aria-hidden="true">C:\&gt;</span> {{ computer().name }} — Prompt de comando</span>
+        <span class="window-mark" aria-hidden="true">▪ ▫ ×</span>
+      </header>
+      <div class="toolbar">
+        <span>SESSÃO LOCAL / USUÁRIO: VISITANTE</span>
+        <div><button type="button" (click)="help()">Ajuda</button><button type="button" (click)="clear()">Limpar</button></div>
+      </div>
+      <div #screen class="screen" tabindex="0" aria-label="Histórico do terminal">
+        <div class="boot">
+          <p class="version">ENDIDADES OS [versão 1.0.0]<br>Sistema de comunicação interna. Acesso restrito.</p>
+          <div class="identity"><span class="terminal-icon" aria-hidden="true">&gt;_</span><div><p class="eyebrow">ESTAÇÃO ATIVA</p><h1>{{ computer().name }}</h1><p class="location">{{ computer().location }}</p></div></div>
+          <div class="diagnostics"><p><span>[ OK ]</span> Conexão com a estação estabelecida.</p><p><span>[ OK ]</span> Protocolo de codificação carregado.</p></div>
+          <p class="welcome">{{ computer().welcome }}</p>
+          <p class="instruction">Digite uma mensagem para começar. <span>/ajuda para ver os comandos.</span></p>
+        </div>
+        <div class="history" role="log" aria-label="Mensagens e resultados" aria-live="polite" aria-relevant="additions">
+          @for (entry of entries(); track entry.id) {
+            <div class="entry">
+              <p class="sent"><span class="prompt">C:\{{ computer().name }}&gt;</span> {{ entry.text }}</p>
+              <p class="result"><span class="result-label">{{ entry.system ? 'SISTEMA' : 'SAÍDA' }}</span><span>{{ entry.output }}</span></p>
+            </div>
+          }
+        </div>
+        <form (submit)="submit($event)" class="command-line">
+          <label for="command">C:\{{ computer().name }}&gt;</label>
+          <input #field id="command" type="text" aria-label="Digite uma palavra ou frase" placeholder="Digite sua mensagem..." autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="2000" [value]="draft()" (input)="draft.set(field.value)" (keydown)="navigate($event)" />
+          <button class="send" type="submit" aria-label="Enviar mensagem" [disabled]="!draft().trim()">↵</button>
+        </form>
+      </div>
+      <footer class="statusbar"><span><i></i> AGUARDANDO ENTRADA</span><span>{{ count().toString().padStart(3, '0') }} MENSAGENS <span class="encoding">/ CODIFICAÇÃO ATIVA</span></span></footer>
+    </div>
+    <div class="case-bottom"><span class="vents" aria-hidden="true"></span><span class="power"><i></i> POWER</span></div>
+  </section>
+  <footer class="page-footer"><span>CANAL SEGURO <span class="footer-divider">/</span> {{ computer().serial }}</span><span><kbd>ENTER</kbd> enviar <span class="footer-divider">·</span> <kbd>↑</kbd> <kbd>↓</kbd> histórico</span></footer>
+</main>
