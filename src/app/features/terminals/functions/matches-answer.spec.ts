@@ -17,6 +17,11 @@ describe('Comparação de respostas', () => {
   it.each([
     ['', 'SONHO'],
     ['SONHOS', 'SONHO'],
+    ['isto é um sonho', 'SONHO'],
+    ['ISTO E UM SONHO', 'sonho'],
+    ['sonho de alguém', 'SONHO'],
+    ['um sonho distante', 'SONHO'],
+    ['sim, TODO FIO ENCONTRA O MESMO NO', 'TODO FIO ENCONTRA O MESMO NÓ'],
     ['PALCO', 'SONHO'],
     ['TODOFIO', 'TODO FIO'],
     ['TODO  FIO', 'TODO FIO'],

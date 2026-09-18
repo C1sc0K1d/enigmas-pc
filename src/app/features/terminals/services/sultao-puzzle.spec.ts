@@ -56,6 +56,62 @@ describe('Enigma de sultao_d', () => {
     expect(net.session('sultao_d').entries.at(-1)?.output).toBe('sonho\n' + success);
   });
 
+  it.each([true, false])(
+    'does not accept a phrase containing SONHO after the full route (context: %s)',
+    (context) => {
+      TestBed.configureTestingModule({});
+      const net = TestBed.inject(TerminalNetwork);
+      unlockConnections(
+        net,
+        SULTAO_ROUTE.filter((id) => id !== 'sultao_d'),
+      );
+      SULTAO_ROUTE.slice(0, -1).forEach((id, index) =>
+        net.submit(id, 'cncta_sda ' + SULTAO_ROUTE[index + 1]),
+      );
+      net.submit('chma_vva', 'dormindo');
+      if (context) net.submit('chma_vva', 'contexto');
+      // All ten actual ciphers decode this inscription to a phrase containing the key.
+      net.submit('chma_vva', 'NXPVZ#BO#MCYEWT#VX V##ÉZ#X  BXDV#');
+      expect(net.session('sultao_d').entries.at(-1)?.output).toBe('ISTO É UM SONHO');
+      expect(net.session('sultao_d').connectionsUnlocked).toBe(false);
+      expect(net.session('chma_vva').entries.at(-1)?.output).not.toContain(success);
+      if (context)
+        expect(net.session('chma_vva').entries.at(-1)?.output).toBe(
+          'TRANSMISSÃO INTERROMPIDA: resposta inválida.',
+        );
+    },
+  );
+
+  it.each(['isto é um sonho', 'ISTO E UM SONHO'])(
+    'does not treat the local phrase %s as a route query',
+    (phrase) => {
+      TestBed.configureTestingModule({});
+      const net = TestBed.inject(TerminalNetwork);
+      net.submit('sultao_d', 'dormindo');
+      net.submit('sultao_d', phrase);
+      expect(net.session('sultao_d').entries.at(-1)?.output).toBe(sultao.encode(phrase));
+      expect(net.session('sultao_d').entries.at(-1)?.output).not.toContain('PERCURSO:');
+      expect(net.session('sultao_d').connectionsUnlocked).toBe(false);
+    },
+  );
+
+  it('forwards a decoded phrase containing the key without recognizing or unlocking it', () => {
+    TestBed.configureTestingModule({});
+    const net = TestBed.inject(TerminalNetwork);
+    unlockConnections(net, ['grd_s0nhadr']);
+    net.submit('grd_s0nhadr', 'cncta_ent sultao_d');
+    net.submit('sultao_d', 'dormindo');
+    net.submit('sultao_d', 'JV#YP #É# X#R T#R#SI#R');
+    expect(net.session('grd_s0nhadr').entries.at(-1)).toMatchObject({
+      text: 'ISTO É UM SONHO',
+      source: 'sultao_d',
+      system: false,
+    });
+    expect(net.session('sultao_d').connectionsUnlocked).toBe(false);
+    expect(net.session('sultao_d').entries.at(-1)?.output).not.toContain('PERCURSO:');
+    expect(net.session('sultao_d').entries.at(-1)?.output).not.toContain(success);
+  });
+
   it('does not award completion for a different decoded word', () => {
     const net = connectedNetwork();
     net.submit('chma_vva', 'JCLAUCWAUJWHCJEHWY');
