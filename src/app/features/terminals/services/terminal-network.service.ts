@@ -1,69 +1,23 @@
-import { afterNextRender, Injectable, signal } from '@angular/core';
-import { COMPUTERS, describeContext } from './computers';
-
-export type TerminalMode = 'acordado' | 'dormindo';
-export interface TerminalEntry {
-  id: number;
-  text: string;
-  output: string;
-  system: boolean;
-  source?: string;
-}
-interface ComputerSession {
-  mode: TerminalMode;
-  inputFrom: string | null;
-  outputTo: string | null;
-  entries: TerminalEntry[];
-  commands: string[];
-  count: number;
-  lastPhrase: number;
-}
-interface NetworkState {
-  connectionsVersion: number;
-  computers: Record<string, ComputerSession>;
-  destination: string | null;
-}
-const STORAGE_KEY = 'presos-terminal-network-v1';
-const CONNECTIONS_VERSION = 3;
-const SECRETS = [
-  'limpa',
-  'contexto',
-  'entd',
-  'sda',
-  'cncta_ent',
-  'cncta_sda',
-  'acordado',
-  'dormindo',
-  '/segredos',
-].join('\n');
-
-function initialState(): NetworkState {
-  return {
-    connectionsVersion: CONNECTIONS_VERSION,
-    destination: null,
-    computers: Object.fromEntries(
-      COMPUTERS.map((computer) => [
-        computer.id,
-        {
-          mode: 'acordado',
-          inputFrom: computer.inputFrom,
-          outputTo: computer.outputTo,
-          entries: [],
-          commands: [],
-          count: 0,
-          lastPhrase: -1,
-        },
-      ]),
-    ),
-  };
-}
+import { afterNextRender, DestroyRef, inject, Injectable, signal } from '@angular/core';
+import { ServerSession } from './server-session.service';
+import { COMPUTERS } from '../data/computers';
+import { CONNECTIONS_VERSION, SECRETS, STORAGE_KEY } from '../config/network.config';
+import { describeContext } from '../functions/describe-context';
+import { describeRoute } from '../functions/describe-route';
+import { createNetworkState, restoreNetworkState } from '../functions/network-state';
+import { getOutputChain } from '../functions/output-chain';
+import { matchesAnswer } from '../functions/matches-answer';
+import { matchesPuzzleRoute } from '../functions/puzzle-route';
+import { ComputerSession, NetworkState } from '../models/network.model';
 
 @Injectable({ providedIn: 'root' })
 export class TerminalNetwork {
-  readonly state = signal<NetworkState>(initialState());
+  readonly state = signal<NetworkState>(createNetworkState(COMPUTERS, CONNECTIONS_VERSION));
   private storage: Storage | null = null;
 
   constructor() {
+    const serverSession = inject(ServerSession);
+    const destroyRef = inject(DestroyRef);
     afterNextRender(() => {
       try {
         this.storage = window.sessionStorage;
@@ -73,6 +27,16 @@ export class TerminalNetwork {
         // O jogo continua em memória quando o navegador não permite armazenamento.
         this.storage = null;
       }
+      destroyRef.onDestroy(
+        serverSession.watch((serverSessionId) => {
+          if (this.state().serverSessionId === serverSessionId) return;
+          this.state.set({
+            ...createNetworkState(COMPUTERS, CONNECTIONS_VERSION),
+            serverSessionId,
+          });
+          this.save();
+        }),
+      );
     });
   }
 
@@ -96,59 +60,10 @@ export class TerminalNetwork {
   }
 
   private restore(saved: unknown): void {
-    // Só restaura uma rede completa e coerente criada por esta versão do aplicativo.
-    if (!saved || typeof saved !== 'object') return;
-    const candidate = saved as NetworkState;
-    const ids = new Set(COMPUTERS.map((computer) => computer.id));
-    const isConnection = (id: unknown) => id === null || (typeof id === 'string' && ids.has(id));
-    if (!candidate.computers || !isConnection(candidate.destination)) return;
-    for (const id of ids) {
-      const session = candidate.computers[id];
-      if (
-        !session ||
-        !['acordado', 'dormindo'].includes(session.mode) ||
-        !isConnection(session.inputFrom) ||
-        !isConnection(session.outputTo) ||
-        session.inputFrom === id ||
-        session.outputTo === id ||
-        !Number.isSafeInteger(session.count) ||
-        session.count < 0 ||
-        !Number.isInteger(session.lastPhrase) ||
-        !Array.isArray(session.commands) ||
-        !session.commands.every((text) => typeof text === 'string') ||
-        !Array.isArray(session.entries) ||
-        !session.entries.every(
-          (entry) =>
-            entry &&
-            Number.isSafeInteger(entry.id) &&
-            typeof entry.text === 'string' &&
-            typeof entry.output === 'string' &&
-            typeof entry.system === 'boolean' &&
-            (entry.source === undefined || ids.has(entry.source)),
-        )
-      )
-        return;
-      if (session.outputTo && candidate.computers[session.outputTo]?.inputFrom !== id) return;
-      if (session.inputFrom && candidate.computers[session.inputFrom]?.outputTo !== id) return;
-    }
-    const migrateConnections = candidate.connectionsVersion !== CONNECTIONS_VERSION;
-    this.state.set({
-      connectionsVersion: CONNECTIONS_VERSION,
-      destination: candidate.destination,
-      computers: Object.fromEntries(
-        COMPUTERS.map((computer) => [
-          computer.id,
-          {
-            ...candidate.computers[computer.id],
-            ...(migrateConnections
-              ? { inputFrom: computer.inputFrom, outputTo: computer.outputTo }
-              : {}),
-          },
-        ]),
-      ),
-    });
-    // Migra somente as ligações antigas, sem apagar conversas, modos ou progresso.
-    if (migrateConnections) this.save();
+    const restored = restoreNetworkState(saved, COMPUTERS, CONNECTIONS_VERSION);
+    if (!restored) return;
+    this.state.set(restored.state);
+    if (restored.connectionsMigrated) this.save();
   }
 
   private append(id: string, text: string, output: string, system = false, source?: string): void {
@@ -185,6 +100,9 @@ export class TerminalNetwork {
   }
 
   private connect(id: string, input: boolean, target: string): string {
+    if (!this.session(id).connectionsUnlocked) {
+      return 'Chave não encontrada ou não digitada nos ultimos 30 dias.';
+    }
     if (target !== 'nenhum' && !Object.hasOwn(this.state().computers, target)) {
       return `CONEXÃO RECUSADA: PC desconhecido.`;
     }
@@ -209,9 +127,39 @@ export class TerminalNetwork {
     return this.connection(id, input);
   }
 
+  private sendNetworkCommand(origin: string, text: string, command: 'dormindo' | 'contexto'): void {
+    const { route, cycleAt } = getOutputChain(origin, (id) => this.session(id).outputTo);
+    if (command === 'dormindo') {
+      route.forEach((id, index) => {
+        this.update(id, { mode: 'dormindo' });
+        if (id !== origin) this.append(id, text, 'MODO DORMINDO.', true, route[index - 1]);
+      });
+      this.append(
+        origin,
+        text,
+        cycleAt ? `TRANSMISSÃO INTERROMPIDA: ciclo detectado em ${cycleAt}.` : 'MODO DORMINDO.',
+        true,
+      );
+      return;
+    }
+    if (cycleAt) {
+      this.append(origin, text, `TRANSMISSÃO INTERROMPIDA: ciclo detectado em ${cycleAt}.`, true);
+      return;
+    }
+    const destination = route.at(-1)!;
+    const computer = COMPUTERS.find((computer) => computer.id === destination)!;
+    const output = describeContext(computer);
+    this.state.update((state) => ({ ...state, destination }));
+    if (destination !== origin) {
+      this.append(destination, text, output, true, route.at(-2));
+    }
+    this.append(origin, text, output, true);
+  }
+
   submit(id: string, text: string): void {
     if (!text.trim()) return;
     const command = text.trim().toLowerCase();
+    const computer = COMPUTERS.find((computer) => computer.id === id)!;
     if (command === 'limpa' || command === '/limpar') {
       this.clear(id);
       return;
@@ -232,13 +180,8 @@ export class TerminalNetwork {
         this.showSecrets(id, text);
         break;
       case 'contexto':
-        this.state.update((state) => ({ ...state, destination: id }));
-        this.append(
-          id,
-          text,
-          describeContext(COMPUTERS.find((computer) => computer.id === id)!),
-          true,
-        );
+      case 'dormindo':
+        this.sendNetworkCommand(id, text, command);
         break;
       case 'entd':
         this.append(id, text, this.connection(id, true), true);
@@ -246,16 +189,23 @@ export class TerminalNetwork {
       case 'sda':
         this.append(id, text, this.connection(id, false), true);
         break;
+      case 'lbr_ent':
+      case 'lbr_sda':
+        this.append(id, text, this.connect(id, command === 'lbr_ent', 'nenhum'), true);
+        break;
       case 'acordado':
         this.update(id, { mode: 'acordado' });
         this.append(id, text, 'MODO ACORDADO.', true);
         break;
-      case 'dormindo':
-        this.update(id, { mode: 'dormindo' });
-        this.append(id, text, 'MODO DORMINDO.', true);
-        break;
       default:
-        if (this.session(id).mode === 'acordado') {
+        if (
+          this.session(id).mode === 'dormindo' &&
+          computer.context.revealRouteOnLocalAnswer &&
+          matchesAnswer(text, computer.context.answer)
+        ) {
+          this.append(id, text, describeRoute(computer), true);
+          this.update(id, { count: this.session(id).count + 1 });
+        } else if (this.session(id).mode === 'acordado') {
           this.append(id, text, this.phrase(id));
           this.update(id, { count: this.session(id).count + 1 });
         } else this.transmit(id, text);
@@ -284,17 +234,39 @@ export class TerminalNetwork {
       const output = awake ? this.phrase(current) : computer.encode(payload);
       trace.push(`${current}: ${output}`);
       this.update(current, { count: session.count + 1 });
-      if (current !== origin) this.append(current, payload, output, false, source);
+      const context = computer.context;
+      const correctRoute = matchesPuzzleRoute([...visited], context.route);
+      const keyRecognized = !awake && matchesAnswer(output, context.answer);
+      const solved = keyRecognized && correctRoute;
+      const keyResponse = keyRecognized
+        ? solved
+          ? (context.successMessage ?? `DESTINO ALCANÇADO: ${current}.`)
+          : describeRoute(computer)
+        : '';
+      if (solved) this.update(current, { connectionsUnlocked: true });
+      if (current !== origin) {
+        this.append(
+          current,
+          payload,
+          keyResponse ? output + '\n' + keyResponse : output,
+          false,
+          source,
+        );
+      }
       if (awake) {
         notice = `TRANSMISSÃO INTERROMPIDA: ${current} está acordado.`;
         break;
       }
+      if (keyRecognized) {
+        notice = keyResponse;
+        break;
+      }
       if (current === destination) {
-        const context = computer.context;
-        const correctStart = [...visited][0] === context.route[0];
         notice = `DESTINO ALCANÇADO: ${current}.`;
-        if (!correctStart || visited.size !== context.route.length) {
+        if (!correctRoute) {
           notice = 'TRANSMISSÃO INTERROMPIDA: percurso inválido.';
+        } else if (context.successMessage) {
+          notice = 'TRANSMISSÃO INTERROMPIDA: resposta inválida.';
         }
         break;
       }

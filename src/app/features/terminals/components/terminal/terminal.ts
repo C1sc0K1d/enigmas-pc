@@ -12,21 +12,24 @@ import {
   viewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { COMPUTERS, ComputerConfig } from '../computers';
-import { TerminalNetwork } from '../terminal-network';
+import { COMPUTERS } from '../../data/computers';
+import { ComputerConfig } from '../../models/computer.model';
+import { TerminalNetwork } from '../../services/terminal-network.service';
 
 @Component({
   selector: 'app-terminal',
   templateUrl: './terminal.html',
   styleUrl: './terminal.scss',
   host: {
+    class: 'terminal',
     '[style.--viewport-height]': 'viewportHeight() ? viewportHeight() + "px" : null',
-    '[class.compact]': 'viewportHeight() > 0 && viewportHeight() < 500',
+    '[class.terminal--compact]': 'viewportHeight() > 0 && viewportHeight() < 500',
   },
 })
 export class Terminal {
   readonly computer = input.required<ComputerConfig>();
   private readonly network = inject(TerminalNetwork);
+  private readonly serverSessionId = computed(() => this.network.state().serverSessionId);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly computers = COMPUTERS;
@@ -50,6 +53,7 @@ export class Terminal {
   constructor() {
     effect(() => {
       this.computer();
+      this.serverSessionId();
       this.draft.set('');
       this.savedDraft = '';
       this.cursor.set(-1);

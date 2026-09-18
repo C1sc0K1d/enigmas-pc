@@ -8,7 +8,8 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "serve:ssr:enigmas-pc": "node dist/enigmas-pc/server/server.mjs"
+    "serve:ssr:enigmas-pc": "node dist/enigmas-pc/server/server.mjs",
+    "test:server": "node --test src/server/session.test.mjs"
   },
   "private": true,
   "packageManager": "npm@11.19.0",
