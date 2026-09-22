@@ -1,0 +1,159 @@
+<main class="terminal__station">
+  <header class="terminal__masthead">
+    <span class="terminal__brand"
+      ><span class="terminal__brand-mark" aria-hidden="true">▥</span> E.P.D.D.C</span
+    >
+    <span class="terminal__network"
+      >REDE INTERNA
+      <span class="terminal__connection"><i class="terminal__led"></i> CONECTADO</span></span
+    >
+  </header>
+  <section class="terminal__computer" aria-label="Computador de enigmas">
+    <div class="terminal__top">
+      <span>ESTAÇÃO DE COMUNICAÇÃO</span><span>{{ computer().serial }}</span>
+    </div>
+    <div class="terminal__window">
+      <header class="terminal__titlebar">
+        <span
+          ><span class="terminal__title-icon" aria-hidden="true">C:\&gt;</span>
+          {{ computer().name }} — Prompt de comando</span
+        >
+        <span class="terminal__window-mark" aria-hidden="true">▪ ▫ ×</span>
+      </header>
+      <div class="terminal__toolbar">
+        <label class="terminal__picker"
+          ><span class="visually-hidden">Trocar de computador</span>
+          <select
+            class="terminal__select"
+            #computerPicker
+            (change)="switchComputer(computerPicker.value)"
+          >
+            @for (station of computers; track station.id) {
+              <option [value]="station.id" [selected]="station.id === computer().id">
+                {{ station.name }}
+              </option>
+            }
+          </select>
+        </label>
+        <div class="terminal__actions">
+          <button class="terminal__button terminal__button--clear" type="button" (click)="clear()">
+            Limpar
+          </button>
+        </div>
+      </div>
+      <div #screen class="terminal__screen" tabindex="0" aria-label="Histórico do terminal">
+        <div class="terminal__boot">
+          <p class="terminal__text terminal__version">
+            ENDIDADES OS [versão 1.0.0]<br />Sistema de comunicação interna. Acesso restrito.
+          </p>
+          <div class="terminal__identity">
+            <span class="terminal__icon" aria-hidden="true">&gt;_</span>
+            <div class="terminal__details">
+              <p class="terminal__text terminal__eyebrow">ESTAÇÃO ATIVA</p>
+              <h1 class="terminal__name">{{ computer().name }}</h1>
+              <p class="terminal__text terminal__location">{{ computer().location }}</p>
+            </div>
+          </div>
+          <div class="terminal__diagnostics">
+            <p class="terminal__text">
+              <span class="terminal__check">[ OK ]</span> Conexão com a estação estabelecida.
+            </p>
+            <p class="terminal__text">
+              <span class="terminal__check">[ OK ]</span> Protocolo de codificação carregado.
+            </p>
+          </div>
+          <p class="terminal__text terminal__welcome">{{ computer().welcome }}</p>
+        </div>
+        <div
+          class="terminal__history"
+          role="log"
+          aria-label="Mensagens e resultados"
+          aria-live="polite"
+          aria-relevant="additions"
+        >
+          @for (entry of entries(); track entry.id) {
+            <div class="terminal__entry">
+              <p class="terminal__text terminal__sent">
+                @if (entry.source) {
+                  <span class="terminal__prompt">RECEBIDO DE {{ entry.source }} → </span>
+                }
+                <span class="terminal__prompt">C:\{{ computer().name }}&gt;</span> {{ entry.text }}
+              </p>
+              <p class="terminal__text terminal__result">
+                <span class="terminal__result-label">{{ entry.system ? 'SISTEMA' : 'SAÍDA' }}</span
+                ><span class="terminal__result-content">{{ entry.output }}</span>
+              </p>
+            </div>
+          }
+        </div>
+      </div>
+      <form (submit)="submit($event)" class="terminal__command">
+        <div class="terminal__prompt-row">
+          <label class="terminal__command-label" for="command">C:\{{ computer().name }}&gt;</label>
+          <div class="terminal__recall" role="group" aria-label="Recuperar mensagens anteriores">
+            <button
+              class="terminal__button terminal__button--history"
+              type="button"
+              aria-label="Mensagem anterior"
+              (click)="recall(-1)"
+              [disabled]="!canRecallPrevious()"
+            >
+              ↑
+            </button>
+            <button
+              class="terminal__button terminal__button--history"
+              type="button"
+              aria-label="Próxima mensagem"
+              (click)="recall(1)"
+              [disabled]="!canRecallNext()"
+            >
+              ↓
+            </button>
+          </div>
+        </div>
+        <input
+          class="terminal__input"
+          #field
+          id="command"
+          type="text"
+          aria-label="Digite uma palavra ou frase"
+          autocomplete="off"
+          autocapitalize="off"
+          autocorrect="off"
+          enterkeyhint="send"
+          spellcheck="false"
+          maxlength="2000"
+          [value]="draft()"
+          (input)="draft.set(field.value)"
+          (keydown)="navigate($event)"
+        />
+        <button
+          class="terminal__button terminal__button--send"
+          type="submit"
+          aria-label="Enviar mensagem"
+          [disabled]="!draft().trim()"
+        >
+          Enviar <span aria-hidden="true">↵</span>
+        </button>
+      </form>
+      <footer class="terminal__statusbar">
+        <span
+          ><i class="terminal__led terminal__led--small"></i>
+          {{ mode() === 'acordado' ? 'ACORDADO' : 'DORMINDO' }}</span
+        ><span
+          >{{ count().toString().padStart(3, '0') }} MENSAGENS
+          <span class="terminal__encoding"
+            >/ {{ mode() === 'dormindo' ? 'CODIFICAÇÃO ATIVA' : 'CONSCIÊNCIA ATIVA' }}</span
+          ></span
+        >
+      </footer>
+    </div>
+    <div class="terminal__bottom">
+      <span class="terminal__vents" aria-hidden="true"></span
+      ><span class="terminal__power"><i class="terminal__led terminal__led--small"></i> POWER</span>
+    </div>
+  </section>
+  <footer class="terminal__footer">
+    <span>CANAL SEGURO <span class="terminal__divider">/</span> {{ computer().serial }}</span>
+  </footer>
+</main>
