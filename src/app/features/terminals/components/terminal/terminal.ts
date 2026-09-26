@@ -12,12 +12,13 @@ import {
   viewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { COMPUTERS } from '../../data/computers';
-import { ComputerConfig } from '../../models/computer.model';
+import { TerminalOutput } from '../terminal-output/terminal-output';
+import { ComputerSummary } from '../../models/computer-summary.model';
 import { TerminalNetwork } from '../../services/terminal-network.service';
 
 @Component({
   selector: 'app-terminal',
+  imports: [TerminalOutput],
   templateUrl: './terminal.html',
   styleUrl: './terminal.scss',
   host: {
@@ -27,12 +28,17 @@ import { TerminalNetwork } from '../../services/terminal-network.service';
   },
 })
 export class Terminal {
-  readonly computer = input.required<ComputerConfig>();
-  private readonly network = inject(TerminalNetwork);
+  readonly routeComputer = input.required<ComputerSummary>({ alias: 'computer' });
+  readonly computer = computed(
+    () =>
+      this.network.catalog().find((c) => c.id === this.routeComputer().id) ?? this.routeComputer(),
+  );
+  protected readonly network = inject(TerminalNetwork);
+  private readonly activeComputerId = computed(() => this.computer().id);
   private readonly serverSessionId = computed(() => this.network.state().serverSessionId);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
-  protected readonly computers = COMPUTERS;
+  protected readonly computers = this.network.catalog;
   protected readonly entries = computed(() => this.network.session(this.computer().id).entries);
   protected readonly count = computed(() => this.network.session(this.computer().id).count);
   protected readonly mode = computed(() => this.network.session(this.computer().id).mode);
@@ -51,8 +57,9 @@ export class Terminal {
   private savedDraft = '';
 
   constructor() {
+    // A new terminal or server session should not inherit an unfinished message.
     effect(() => {
-      this.computer();
+      this.activeComputerId();
       this.serverSessionId();
       this.draft.set('');
       this.savedDraft = '';
@@ -61,7 +68,7 @@ export class Terminal {
     afterNextRender(() => {
       const viewport = window.visualViewport;
       const resize = () => {
-        // Mantém o zoom acessível: não comprime o layout enquanto o usuário amplia a página.
+        // Resize for the keyboard, but leave the layout alone while the player is zooming.
         if (!viewport || viewport.scale === 1)
           this.viewportHeight.set(viewport?.height ?? window.innerHeight);
       };
@@ -81,6 +88,7 @@ export class Terminal {
     });
   }
 
+  // Avoid opening a phone keyboard just because the player opened or cleared a terminal.
   private focusOnDesktop(): void {
     if (window.matchMedia?.('(pointer: fine)').matches) this.focus();
   }
@@ -90,14 +98,17 @@ export class Terminal {
   }
 
   protected switchComputer(id: string): void {
-    if (this.computers.some((computer) => computer.id === id)) void this.router.navigate(['/', id]);
+    if (this.computers().some((computer) => computer.id === id))
+      void this.router.navigate(['/', id]);
   }
 
-  protected submit(event: Event): void {
+  protected async submit(event: Event): Promise<void> {
     event.preventDefault();
     const text = this.draft();
     if (!text.trim()) return;
-    this.network.submit(this.computer().id, text);
+    const id = this.computer().id;
+    if (!(await this.network.submit(id, text))) return;
+    if (this.computer().id !== id || this.draft() !== text) return;
     this.draft.set('');
     const field = this.field()?.nativeElement;
     if (field) field.value = '';
@@ -106,8 +117,9 @@ export class Terminal {
     this.focus();
   }
 
-  protected clear(): void {
-    this.network.clear(this.computer().id);
+  protected async clear(): Promise<void> {
+    const id = this.computer().id;
+    if (!(await this.network.clear(id)) || this.computer().id !== id) return;
     this.draft.set('');
     this.savedDraft = '';
     this.cursor.set(-1);

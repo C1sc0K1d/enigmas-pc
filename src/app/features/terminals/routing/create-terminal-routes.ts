@@ -1,15 +1,15 @@
 import { Routes } from '@angular/router';
 import { Terminal } from '../components/terminal/terminal';
-import { ComputerConfig } from '../models/computer.model';
+import { ComputerSummary } from '../models/computer-summary.model';
 
 export interface TerminalRouteOptions {
   defaultComputerId?: string;
   titleSuffix?: string;
 }
 
-// Pode montar as rotas de outro conjunto de computadores sem duplicar a configuração.
+// Build URLs from the computer list so another campaign can reuse the same terminal.
 export function createTerminalRoutes(
-  computers: readonly ComputerConfig[],
+  computers: readonly ComputerSummary[],
   options: TerminalRouteOptions = {},
 ): Routes {
   if (!computers.length) throw new Error('É necessário configurar pelo menos um computador.');

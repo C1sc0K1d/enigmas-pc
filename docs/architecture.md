@@ -1,89 +1,70 @@
-# Organização do projeto
+# Arquitetura
 
-O shell e a configuração do Angular ficam em `src/app/`. O jogo fica em `src/app/features/terminals/`.
+O Angular apresenta o terminal. O Spring Boot executa o jogo e mantém o estado no PostgreSQL.
+
+## Fluxo de uma ação
+
+1. O componente envia o texto original ao serviço TerminalNetwork.
+2. TerminalApi faz a requisição HTTP para /api/games/current/commands.
+3. O proxy encaminha a requisição ao Spring.
+4. O backend bloqueia a sessão durante a transação, valida a revisão, executa o comando e persiste o resultado.
+5. O Angular apresenta o estado devolvido pelo backend.
+
+As cifras, as respostas e o desbloqueio de conexões não são executados pelo navegador. Não existe fallback para execução local quando o servidor está indisponível.
+
+## Organização do Angular
 
 ```text
-src/app/
-├── app.ts / app.html / app.scss / app.spec.ts
-├── app.config.ts / app.config.server.ts
-├── app.routes.ts / app.routes.server.ts
-└── features/terminals/
-    ├── ciphers/                 # Cifras e testes unitários
-    ├── components/terminal/     # Interface, estilos e testes do componente
-    ├── config/                 # Percursos, conexões iniciais e armazenamento
-    ├── data/
-    │   ├── computers.ts        # Catálogo e ordem do seletor
-    │   ├── computers.spec.ts   # Consistência do catálogo
-    │   └── computers/          # Uma configuração por PC
-    ├── functions/              # Funções puras e seus testes
-    ├── models/                 # Tipos dos computadores, sessões e rede
-    ├── routing/                # Geração das URLs e testes de navegação
-    └── services/               # Estado reativo, comandos e transmissão
-scripts/start-lan.mjs            # Inicialização para a rede local
+src/app/features/terminals/
+├── components/
+│   ├── terminal/          Interação, histórico, estados de conexão e teclado
+│   └── terminal-output/   Apresentação dos espaços das saídas cifradas
+├── data/public-computers.ts Metadados públicos usados nas URLs e no prerender
+├── functions/output-display.ts Apresentação de texto, sem regras do jogo
+├── models/                Contratos públicos e formato do estado recebido
+├── routing/               URLs por computador
+├── services/
+│   ├── terminal-api.service.ts     Transporte HTTP
+│   ├── terminal-network.service.ts Estado reativo e coordenação dos envios
+│   └── game-events.service.ts     Conexão SSE e reconexão automática
+└── testing/               Auxiliares de testes da interface, sem regras do jogo
+
+src/server/backend-proxy.ts Proxy do servidor SSR
+proxy.conf.cjs              Proxy do ng serve
 ```
 
-## Rotas de navegação e percursos dos enigmas
+O catálogo de /api/computers atualiza os metadados exibidos. A lista pública local mantém as dez URLs disponíveis para prerender sem depender de uma API ativa durante o build. Ao adicionar um novo computador, adicione também seus metadados públicos em public-computers.ts para criar sua URL.
 
-| Responsabilidade | Onde alterar |
-| --- | --- |
-| URLs, terminal inicial e títulos das páginas | `routing/create-terminal-routes.ts`, usado por `app.routes.ts` |
-| Percursos dos enigmas e ordem de SONHO | `config/puzzle-routes.ts` |
-| PCs conectados ao abrir uma sessão | `config/initial-connections.ts` |
-| Versão das conexões salvas | `config/network.config.ts` |
+O motor TypeScript anterior foi removido. A pasta testing contém apenas auxiliares que fornecem estados prontos aos testes da interface; as regras do jogo são testadas no backend Java.
 
-`createTerminalRoutes(computers, options)` gera uma URL por PC, associa sua configuração ao componente reutilizável e inclui redirecionamentos. As opções `defaultComputerId` e `titleSuffix` permitem escolher o terminal inicial e o sufixo do título. Listas vazias, IDs duplicados e um PC inicial inexistente são rejeitados. `withComponentInputBinding()` em `app.config.ts` entrega a configuração da rota ao componente.
+## Organização do Spring
 
-`createPuzzleRoute(order, destination, steps)` monta um percurso circular incluindo início e destino. `matchesPuzzleRoute(actual, expected)` verifica toda a sequência em ordem. A rota especial de dez PCs é `SULTAO_ROUTE`. `includeRequiredComputer(route, id)` inclui a etapa obrigatória sem duplicá-la nem alterar o destino. A fábrica aplica essa regra tanto a percursos gerados quanto a rotas explícitas. A campanha define `REQUIRED_PUZZLE_COMPUTER = "tec_la"` em `config/puzzle-routes.ts`; a opção `requiredComputerId` pode definir outro PC ou `null`. O terminal `chma_vva` usa `CHAMA_ROUTE = ["chma_vva"]` e `requiredComputerId: null` para manter seu percurso local. A quantidade exibida vem sempre da rota final, que pode crescer uma etapa além de `steps`.
+Os módulos enigma e terminal são separados por funcionalidade, com controller, DTOs, serviços e modelos próprios. Apenas terminal precisa de entidades e repositórios JPA neste momento. O catálogo fica versionado no arquivo puzzles/computers.json do backend; o estado de jogo fica na tabela game_sessions.
 
-`getOutputChain(origin, next)` percorre as saídas atuais, sem repetir PCs, e informa onde existe um ciclo. `TerminalNetwork.sendNetworkCommand` usa essa função para colocar todos os PCs alcançados em modo dormindo ou consultar exclusivamente o contexto do último PC. Esses comandos digitados não passam pelas cifras, não dependem do modo dos receptores e não são disparados por texto produzido pelas cifras. Em ciclos, `contexto` não escolhe um destino arbitrário; `dormindo` alcança cada PC uma vez e informa o ciclo.
+O motor TerminalGame é independente de HTTP e persistência. GameSessionService controla a transação, concorrência, identidade da sessão e armazenamento. CipherService transforma os textos preservando as regras de Unicode das cifras anteriores.
 
-`getChainConnections(id, chain)` calcula entrada e saída. Os extremos ficam abertos e PCs fora da sequência ficam desconectados. Essa função não altera os percursos dos enigmas.
+## Sessão e erros
 
-## Configurar ou adicionar um PC
+Todos os navegadores entram na mesma partida. POST /api/games retorna a linha compartilhada criada pela migração V2, preservando as sessões antigas. A interface recebe avisos SSE depois do commit e consulta o estado ao receber um aviso, reconectar ou recuperar foco; tokens privados antigos do sessionStorage são ignorados. Respostas de consultas anteriores a um envio são descartadas para evitar regressão visual do estado.
 
-Edite o arquivo do PC em `data/computers/`. A fábrica usa propriedades nomeadas e recebe a função de cifra importada de `ciphers/`. Exemplo:
+A mudança da identidade do processo Spring reinicia o jogo. A reconexão SSE recarrega o estado e detecta a nova identidade do servidor. Reiniciar apenas o Angular não reinicia o jogo. Falhas de rede preservam o estado exibido até uma resposta confirmada.
 
-```typescript
-import { createComputer } from '../../functions/create-computer';
-import { encodeCaesar } from '../../ciphers/caesar';
+Os envios são sequenciais. Cada comando inclui a revisão atual e um requestId. Conflitos retornam 409. Após um envio sem confirmação, o Angular recarrega o estado e pede que o jogador confira o histórico; não repete automaticamente a ação. A interface mantém o rascunho em caso de falha e oferece reconexão.
 
-export const arquivo = createComputer({
-  id: 'arquivo',
-  serial: 11,
-  name: 'Arquivo',
-  riddle: 'O que permanece quando a voz se cala?',
-  answer: 'memoria',
-  awakePhrases: ['Ainda guardo o que vocês esqueceram.'],
-  encode: encodeCaesar,
-  context: { route: ['chma_vva', 'tec_la', 'arquivo'] },
-});
-```
+## Rede local e produção
 
-Importe a configuração e acrescente-a ao catálogo `data/computers.ts`. As URLs e o seletor usam esse catálogo automaticamente. Para gerar o percurso padrão, use `steps` e inclua o PC em `PUZZLE_ORDER`; para um percurso explícito, use `context.route`. `context.successMessage` define uma conclusão que exige a resposta correta após toda a travessia. `matchesAnswer(actual, expected)` centraliza a comparação: ignora maiúsculas/minúsculas, acentos (inclusive marcas Unicode combinantes) e espaços externos. A normalização é aplicada apenas ao validar a resposta ou consultar o percurso pela palavra-chave; cifras, espaços internos, pontuação e histórico continuam preservados.
+O navegador usa sempre /api na origem do Angular. O host encaminha para BACKEND_URL, com padrão http://127.0.0.1:8080. Isso evita que localhost seja interpretado como o celular do jogador.
 
-`createComputer(definition, { puzzleOrder, initialConnectionChain, requiredComputerId })` permite usar outras sequências. Alterar conexões iniciais não reconecta sessões salvas da mesma versão. Para migrar essas sessões intencionalmente, incremente `CONNECTIONS_VERSION`.
-
-A opção `context.revealRouteOnLocalAnswer` permite consultar o percurso digitando a resposta diretamente no PC. Está ativada apenas em `sultao_d`. A consulta usa `describeRoute`, também reutilizada por `describeContext`, e funciona somente no modo dormindo, sem encaminhar a mensagem. Acordado, a palavra recebe uma fala aleatória normal. Palavras recebidas pela rede continuam sendo tratadas como dados da cifra. A conclusão ainda exige a travessia completa e ordenada na mesma transmissão. Em qualquer PC dormindo, reconhecer a palavra-chave na saída da cifra interrompe o encaminhamento antes de consultar a próxima conexão: percurso correto libera a chave; percurso incompleto ou errado retorna `describeRoute` no receptor e no emissor. O destino selecionado e as conexões existentes não impedem esse reconhecimento; as conexões não são removidas.
-
-## Estado e interface
-
-`models/` define contratos sem dependência do Angular. As cifras e funções puras recebem dados e retornam resultados sem acessar DOM, signals ou armazenamento.
-
-`createNetworkState` inicializa as sessões com `connectionsUnlocked: false`. A conexão consulta somente a chave do PC que executa o comando; o destino pode estar bloqueado. `TerminalNetwork.transmit` libera a chave ao validar resposta, percurso completo e modo dormindo, independentemente de haver uma mensagem de conclusão. `restoreNetworkState` valida dados salvos e migra conexões. O serviço `TerminalNetwork` cuida do armazenamento no navegador, estado reativo, comandos, respostas e transmissão. O componente cuida da digitação, histórico visual, troca de PC, foco e adaptação ao teclado do celular.
-
-A chave de armazenamento e sua versão foram preservadas nesta reorganização. O estado continua independente por aba e aparelho. As chaves liberadas também ficam no `sessionStorage`, sem prazo de expiração. `src/server/session.ts` fornece `GET /api/session` com `Cache-Control: no-store` e uma identificação aleatória por processo, preservada durante recompilações do servidor de desenvolvimento. `ServerSession` consulta essa identificação ao carregar, a cada 10 segundos, ao recuperar a conexão e ao retomar a aba. O serviço `TerminalNetwork` compara a identificação com `serverSessionId` no estado salvo: uma mudança recria a rede inteira com os valores iniciais e sobrescreve o armazenamento. Falhas de rede preservam o jogo até uma confirmação válida. Estados antigos sem identificação também são zerados na primeira confirmação.
+ng serve usa proxy.conf.cjs; o servidor SSR usa backend-proxy.ts. Hospedagem apenas de arquivos estáticos precisa de um proxy equivalente no servidor web. Respostas de sessão não são armazenadas em cache.
 
 ## Testes
 
-Os arquivos `*.spec.ts` ficam junto do módulo correspondente. O padrão `src/**/*.spec.ts` em `tsconfig.spec.json` descobre todos eles.
-
-- `ciphers/`: exemplos, pulsos, descartes e retorno circular no alfabeto.
-- `functions/`: percursos, conexões, fábrica, contexto e validação de estado.
-- `routing/`: URLs e navegação real com binding da configuração ao terminal.
-- `components/terminal/`: digitação, histórico, modos, limpeza e apresentação segura de texto.
-- `services/`: comandos, transmissão, restauração de sessões e conclusão do enigma de SONHO.
-- `data/`: consistência das configurações dos PCs.
-- `app.spec.ts`: criação do shell.
+- remote-network.spec.ts verifica transporte, restauração, indisponibilidade e ausência de repetição automática.
+- Os testes de componentes verificam a apresentação e a interação.
+- testing contém estados simulados para os testes da interface, sem executar cifras ou enigmas.
+- backend-proxy.test.mjs verifica encaminhamento de caminhos, headers, corpo e erros.
+- O backend compara 29 cenários de jogo e 70 exemplos de cifras com resultados da implementação original, além de testar a API e o banco H2.
+- A inicialização local com PostgreSQL 18.6, a migração Flyway e a resposta de /api/session foram verificadas.
 
 ```sh
 npm test -- --watch=false
@@ -91,10 +72,28 @@ npm run test:server
 npm run build
 ```
 
-Esses comandos encerram após a verificação. Para servir o projeto na rede local, execute separadamente `npm run start:lan`.
+## Texto e estilos
 
-## Estilos BEM
+TerminalOutput desenha um ponto visual para cada espaço cifrado. O texto original permanece intacto para cópia, leitura assistiva e transmissão. outputParts diferencia a cifra de avisos, falas e rótulos.
 
-O bloco `terminal` fica no elemento host do componente. Elementos usam `terminal__elemento` (por exemplo, `terminal__screen` e `terminal__result-content`). Modificadores usam `--`: `terminal--compact` controla o layout compacto e `terminal__button--send`, `terminal__button--clear` e `terminal__button--history` distinguem os botões. Todo modificador acompanha a classe base correspondente.
+Os componentes usam BEM: terminal, terminal__elemento e terminal--modificador. O bloco terminal-output possui seus próprios estilos. Estados de erro e envio são apresentados na interface, sem revelar detalhes internos do servidor.
 
-Os estilos do componente usam classes explícitas, sem depender de seletores como `div > span` ou `toolbar button`. As regras responsivas usam os mesmos nomes BEM. O bloco global `visually-hidden` mantém rótulos acessíveis ocultos visualmente; os seletores globais de HTML e os resets continuam em `src/styles.scss`.
+## Atualizações e concorrência
+
+GET /api/games/events mantém uma conexão SSE para a partida compartilhada. GameEvents publica avisos depois do commit, envia heartbeat a cada dez segundos e remove conexões encerradas. Cada abertura/reconexão provoca a leitura completa do estado, sem depender de replay de eventos. O proxy deve transmitir o fluxo sem buffering; seu timeout de inatividade é maior que o intervalo do heartbeat.
+
+O Angular agrupa avisos recebidos durante uma consulta ou envio e busca o estado novamente ao terminar. As notificações não executam comandos. Um conflito HTTP 409 mantém o rascunho e informa que o comando não foi aplicado; uma falha de rede informa que o resultado é incerto, sem reenvio automático.
+
+O bloqueio da linha serializa as alterações, e a revisão global impede executar comandos sobre um estado antigo. Isso também pode rejeitar comandos simultâneos em terminais diferentes, pois as conexões propagam efeitos entre eles. O SSE atual atende uma instância do backend; múltiplas instâncias exigiriam distribuição dos eventos entre processos.
+
+## Reset do mestre
+
+O script scripts/reset-game.ps1, no projeto Java, pede a confirmação REINICIAR e chama POST /api/master/reset diretamente em 127.0.0.1. O endpoint exige uma origem loopback e a chave master.reset-token do arquivo local .env.properties, ignorado pelo Git. A chave também é obrigatória porque o proxy Angular acessa o Java a partir do próprio computador.
+
+O reset bloqueia a linha da partida, restaura o estado inicial, zera a revisão, apaga o identificador do último comando e cria uma nova identidade de ciclo. O epoch da linha continua identificando o processo Spring; serverSessionId no estado identifica o ciclo da partida. Essa distinção permite resetar sem reiniciar Java e rejeitar comandos atrasados, mesmo quando a revisão coincide. O aviso SSE sai após o commit. As definições dos enigmas e os registros antigos não são apagados.
+
+## Modo transe
+
+As seis falas de cada terminal ficam em trancePhrases no catálogo Java. O estado opcional trance registra nextIndex e nextAt na sessão persistida. TranceScheduler verifica a partida compartilhada a cada 250 ms; cada fala fica elegível após 2 segundos. A transação bloqueia a mesma linha usada pelos comandos e pelo reset, avança no máximo uma fala por terminal, incrementa a revisão e publica o aviso SSE após o commit.
+
+O comando transe inicia apenas o terminal atual. Ao terminar, ele permanece em transe aguardando uma mensagem comum para reiniciar. Mensagens durante a sequência são descartadas sem alteração do estado, inclusive se a revisão estiver atrasada, mas comandos de ciclos anteriores continuam rejeitados. Comandos de controle permanecem sujeitos à revisão atual. Acordar, dormir e resetar removem o progresso pendente. Nenhum temporizador de diálogo é criado no Angular.

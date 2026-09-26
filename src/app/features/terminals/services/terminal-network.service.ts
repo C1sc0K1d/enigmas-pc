@@ -1,288 +1,195 @@
 import { afterNextRender, DestroyRef, inject, Injectable, signal } from '@angular/core';
-import { ServerSession } from './server-session.service';
-import { COMPUTERS } from '../data/computers';
-import { CONNECTIONS_VERSION, SECRETS, STORAGE_KEY } from '../config/network.config';
-import { describeContext } from '../functions/describe-context';
-import { describeRoute } from '../functions/describe-route';
-import { createNetworkState, restoreNetworkState } from '../functions/network-state';
-import { getOutputChain } from '../functions/output-chain';
-import { matchesAnswer } from '../functions/matches-answer';
-import { matchesPuzzleRoute } from '../functions/puzzle-route';
+
+import { PUBLIC_COMPUTERS } from '../data/public-computers';
 import { ComputerSession, NetworkState } from '../models/network.model';
+import { TerminalApi, GameResponse } from './terminal-api.service';
+import { GameEvents } from './game-events.service';
+import { HttpErrorResponse } from '@angular/common/http';
+
+const emptySession = (): ComputerSession => ({
+  connectionsUnlocked: false,
+  mode: 'acordado',
+  inputFrom: null,
+  outputTo: null,
+  entries: [],
+  commands: [],
+  count: 0,
+  lastPhrase: -1,
+});
 
 @Injectable({ providedIn: 'root' })
 export class TerminalNetwork {
-  readonly state = signal<NetworkState>(createNetworkState(COMPUTERS, CONNECTIONS_VERSION));
-  private storage: Storage | null = null;
+  readonly catalog = signal(PUBLIC_COMPUTERS);
+  readonly state = signal<NetworkState>({
+    serverSessionId: null,
+    connectionsVersion: 3,
+    destination: null,
+    computers: Object.fromEntries(PUBLIC_COMPUTERS.map((c) => [c.id, emptySession()])),
+  });
+  readonly ready = signal(false);
+  readonly busy = signal(false);
+  readonly error = signal<string | null>(null);
+  private readonly api = inject(TerminalApi);
+  private gameId: string | null = null;
+  private revision = 0;
+  private generation = 0;
+  private refreshing = false;
+  private refreshQueued = false;
+  private destroyed = false;
+  private initializing: Promise<void> | null = null;
 
   constructor() {
-    const serverSession = inject(ServerSession);
-    const destroyRef = inject(DestroyRef);
+    const events = inject(GameEvents);
+    const destroy = inject(DestroyRef);
     afterNextRender(() => {
-      try {
-        this.storage = window.sessionStorage;
-        const saved = this.storage.getItem(STORAGE_KEY);
-        if (saved) this.restore(JSON.parse(saved));
-      } catch {
-        // O jogo continua em memória quando o navegador não permite armazenamento.
-        this.storage = null;
-      }
-      destroyRef.onDestroy(
-        serverSession.watch((serverSessionId) => {
-          if (this.state().serverSessionId === serverSessionId) return;
-          this.state.set({
-            ...createNetworkState(COMPUTERS, CONNECTIONS_VERSION),
-            serverSessionId,
-          });
-          this.save();
-        }),
-      );
+      void this.initialize();
+      const refresh = () => {
+        void this.refresh();
+      };
+      const stopEvents = events.watch(refresh);
+      window.addEventListener('focus', refresh);
+      window.addEventListener('online', refresh);
+      destroy.onDestroy(() => {
+        this.generation++;
+        this.destroyed = true;
+        stopEvents();
+        window.removeEventListener('focus', refresh);
+        window.removeEventListener('online', refresh);
+      });
     });
+  }
+
+  initialize(): Promise<void> {
+    if (this.initializing) return this.initializing;
+    this.initializing = this.connect().finally(() => (this.initializing = null));
+    return this.initializing;
+  }
+
+  async reconnect(): Promise<void> {
+    if (this.busy()) return;
+    await this.initialize();
+  }
+
+  private async connect(): Promise<void> {
+    this.generation++;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      this.catalog.set(await this.api.catalog());
+      this.apply(await this.api.create());
+      this.ready.set(true);
+    } catch {
+      this.ready.set(false);
+      this.error.set('Não foi possível conectar ao servidor. Tente reconectar.');
+    } finally {
+      this.busy.set(false);
+      this.drainRefresh();
+    }
   }
 
   session(id: string): ComputerSession {
-    return this.state().computers[id];
+    return this.state().computers[id] ?? emptySession();
+  }
+  clear(id: string): Promise<boolean> {
+    return this.submit(id, 'limpa');
   }
 
-  private update(id: string, changes: Partial<ComputerSession>): void {
-    this.state.update((state) => ({
-      ...state,
-      computers: { ...state.computers, [id]: { ...state.computers[id], ...changes } },
-    }));
-  }
-
-  private save(): void {
+  async submit(id: string, text: string): Promise<boolean> {
+    if (!text.trim() || !this.ready() || this.busy() || !this.gameId) return false;
+    this.generation++;
+    this.busy.set(true);
+    this.error.set(null);
     try {
-      this.storage?.setItem(STORAGE_KEY, JSON.stringify(this.state()));
-    } catch {
-      /* Cota cheia: preserva o estado em memória. */
-    }
-  }
-
-  private restore(saved: unknown): void {
-    const restored = restoreNetworkState(saved, COMPUTERS, CONNECTIONS_VERSION);
-    if (!restored) return;
-    this.state.set(restored.state);
-    if (restored.connectionsMigrated) this.save();
-  }
-
-  private append(id: string, text: string, output: string, system = false, source?: string): void {
-    const entries = this.session(id).entries;
-    this.update(id, {
-      entries: [...entries, { id: (entries.at(-1)?.id ?? -1) + 1, text, output, system, source }],
-    });
-  }
-
-  clear(id: string): void {
-    this.update(id, { entries: [], commands: [] });
-    this.save();
-  }
-
-  private showSecrets(id: string, text: string): void {
-    this.append(id, text, SECRETS, true);
-    this.save();
-  }
-
-  private phrase(id: string): string {
-    const phrases = COMPUTERS.find((computer) => computer.id === id)!.awakePhrases;
-    const choices = phrases
-      .map((_, index) => index)
-      .filter((index) => index !== this.session(id).lastPhrase);
-    const index = choices.length ? choices[Math.floor(Math.random() * choices.length)] : 0;
-    this.update(id, { lastPhrase: index });
-    return phrases[index];
-  }
-
-  private connection(id: string, input: boolean): string {
-    return `${input ? 'ENTRADA' : 'SAÍDA CONECTADA'}: ${
-      (input ? this.session(id).inputFrom : this.session(id).outputTo) ?? 'nenhum'
-    }`;
-  }
-
-  private connect(id: string, input: boolean, target: string): string {
-    if (!this.session(id).connectionsUnlocked) {
-      return 'Chave não encontrada ou não digitada nos ultimos 30 dias.';
-    }
-    if (target !== 'nenhum' && !Object.hasOwn(this.state().computers, target)) {
-      return `CONEXÃO RECUSADA: PC desconhecido.`;
-    }
-    if (target === id) return 'CONEXÃO RECUSADA.';
-    const sourceId = input ? (target === 'nenhum' ? null : target) : id;
-    const destinationId = input ? id : target === 'nenhum' ? null : target;
-    // Uma entrada e uma saída por PC. Desfaz os pares antigos dos dois lados.
-    if (sourceId) {
-      const previous = this.session(sourceId).outputTo;
-      if (previous) this.update(previous, { inputFrom: null });
-      this.update(sourceId, { outputTo: null });
-    }
-    if (destinationId) {
-      const previous = this.session(destinationId).inputFrom;
-      if (previous) this.update(previous, { outputTo: null });
-      this.update(destinationId, { inputFrom: null });
-    }
-    if (sourceId && destinationId) {
-      this.update(sourceId, { outputTo: destinationId });
-      this.update(destinationId, { inputFrom: sourceId });
-    }
-    return this.connection(id, input);
-  }
-
-  private sendNetworkCommand(origin: string, text: string, command: 'dormindo' | 'contexto'): void {
-    const { route, cycleAt } = getOutputChain(origin, (id) => this.session(id).outputTo);
-    if (command === 'dormindo') {
-      route.forEach((id, index) => {
-        this.update(id, { mode: 'dormindo' });
-        if (id !== origin) this.append(id, text, 'MODO DORMINDO.', true, route[index - 1]);
-      });
-      this.append(
-        origin,
+      const response = await this.api.submit(this.gameId, {
+        computerId: id,
         text,
-        cycleAt ? `TRANSMISSÃO INTERROMPIDA: ciclo detectado em ${cycleAt}.` : 'MODO DORMINDO.',
-        true,
+        requestId: this.requestId(),
+        revision: this.revision,
+        serverSessionId: this.state().serverSessionId!,
+      });
+      this.apply(response);
+      return true;
+    } catch (error) {
+      // A lost response may have committed. Read the authoritative snapshot; never replay automatically.
+      try {
+        this.apply(await this.api.load(this.gameId));
+      } catch {
+        this.ready.set(false);
+      }
+      this.error.set(
+        error instanceof HttpErrorResponse && error.status === 409
+          ? 'A partida mudou. Seu comando não foi aplicado. Confira o estado atualizado e envie novamente.'
+          : 'Não foi possível confirmar o envio. Confira o histórico antes de tentar novamente.',
       );
-      return;
+      return false;
+    } finally {
+      this.busy.set(false);
+      this.drainRefresh();
     }
-    if (cycleAt) {
-      this.append(origin, text, `TRANSMISSÃO INTERROMPIDA: ciclo detectado em ${cycleAt}.`, true);
-      return;
-    }
-    const destination = route.at(-1)!;
-    const computer = COMPUTERS.find((computer) => computer.id === destination)!;
-    const output = describeContext(computer);
-    this.state.update((state) => ({ ...state, destination }));
-    if (destination !== origin) {
-      this.append(destination, text, output, true, route.at(-2));
-    }
-    this.append(origin, text, output, true);
   }
 
-  submit(id: string, text: string): void {
-    if (!text.trim()) return;
-    const command = text.trim().toLowerCase();
-    const computer = COMPUTERS.find((computer) => computer.id === id)!;
-    if (command === 'limpa' || command === '/limpar') {
-      this.clear(id);
-      return;
-    }
-    this.update(id, { commands: [...this.session(id).commands, text] });
-    const parts = command.split(/\s+/);
-    if (parts.length > 1 && (parts[0] === 'cncta_ent' || parts[0] === 'cncta_sda')) {
-      const output =
-        parts.length > 2
-          ? 'COMANDO INVÁLIDO.'
-          : this.connect(id, parts[0] === 'cncta_ent', parts[1]);
-      this.append(id, text, output, true);
-      this.save();
-      return;
-    }
-    switch (command) {
-      case '/segredos':
-        this.showSecrets(id, text);
-        break;
-      case 'contexto':
-      case 'dormindo':
-        this.sendNetworkCommand(id, text, command);
-        break;
-      case 'entd':
-        this.append(id, text, this.connection(id, true), true);
-        break;
-      case 'sda':
-        this.append(id, text, this.connection(id, false), true);
-        break;
-      case 'lbr_ent':
-      case 'lbr_sda':
-        this.append(id, text, this.connect(id, command === 'lbr_ent', 'nenhum'), true);
-        break;
-      case 'acordado':
-        this.update(id, { mode: 'acordado' });
-        this.append(id, text, 'MODO ACORDADO.', true);
-        break;
-      default:
-        if (
-          this.session(id).mode === 'dormindo' &&
-          computer.context.revealRouteOnLocalAnswer &&
-          matchesAnswer(text, computer.context.answer)
-        ) {
-          this.append(id, text, describeRoute(computer), true);
-          this.update(id, { count: this.session(id).count + 1 });
-        } else if (this.session(id).mode === 'acordado') {
-          this.append(id, text, this.phrase(id));
-          this.update(id, { count: this.session(id).count + 1 });
-        } else this.transmit(id, text);
-    }
-    this.save();
+  private apply(response: GameResponse): void {
+    this.gameId = response.gameId;
+    this.revision = response.revision;
+    this.state.set(response.state);
   }
 
-  private transmit(origin: string, text: string): void {
-    const visited = new Set<string>();
-    const trace: string[] = [];
-    const destination = this.state().destination;
-    let current: string | null = origin;
-    let source: string | undefined;
-    let payload = text;
-    let notice = '';
-    while (current) {
-      if (visited.has(current)) {
-        notice = `TRANSMISSÃO INTERROMPIDA: ciclo detectado em ${current}.`;
-        break;
-      }
-      visited.add(current);
-      const computer = COMPUTERS.find((computer) => computer.id === current)!;
-      const session = this.session(current);
-      const awake = session.mode === 'acordado';
-      // Conteúdo recebido é sempre dado: nunca executa comandos de controle.
-      const output = awake ? this.phrase(current) : computer.encode(payload);
-      trace.push(`${current}: ${output}`);
-      this.update(current, { count: session.count + 1 });
-      const context = computer.context;
-      const correctRoute = matchesPuzzleRoute([...visited], context.route);
-      const keyRecognized = !awake && matchesAnswer(output, context.answer);
-      const solved = keyRecognized && correctRoute;
-      const keyResponse = keyRecognized
-        ? solved
-          ? (context.successMessage ?? `DESTINO ALCANÇADO: ${current}.`)
-          : describeRoute(computer)
-        : '';
-      if (solved) this.update(current, { connectionsUnlocked: true });
-      if (current !== origin) {
-        this.append(
-          current,
-          payload,
-          keyResponse ? output + '\n' + keyResponse : output,
-          false,
-          source,
-        );
-      }
-      if (awake) {
-        notice = `TRANSMISSÃO INTERROMPIDA: ${current} está acordado.`;
-        break;
-      }
-      if (keyRecognized) {
-        notice = keyResponse;
-        break;
-      }
-      if (current === destination) {
-        notice = `DESTINO ALCANÇADO: ${current}.`;
-        if (!correctRoute) {
-          notice = 'TRANSMISSÃO INTERROMPIDA: percurso inválido.';
-        } else if (context.successMessage) {
-          notice = 'TRANSMISSÃO INTERROMPIDA: resposta inválida.';
-        }
-        break;
-      }
-      source = current;
-      current = session.outputTo;
-      payload = output;
-      if (!current && destination) notice = `TRANSMISSÃO INTERROMPIDA: ${source} está sem saída.`;
+  /** Read shared progress without blocking typing or allowing an old poll to undo a command. */
+  async refresh(): Promise<void> {
+    if (this.destroyed) return;
+    if (this.busy() || this.refreshing) {
+      this.refreshQueued = true;
+      return;
     }
-    // Mostra todo o percurso no emissor; cada receptor mantém sua própria entrada e saída.
-    const output = trace.length === 1 ? trace[0].slice(origin.length + 2) : trace.join('\n');
-    this.append(
-      origin,
-      text,
-      notice.startsWith('TRANSMISSÃO INTERROMPIDA:')
-        ? notice
-        : [output, notice].filter(Boolean).join('\n'),
+    if (!this.ready() || !this.gameId) {
+      await this.initialize();
+      return;
+    }
+    const generation = this.generation;
+    this.refreshing = true;
+    try {
+      const response = await this.api.load(this.gameId);
+      if (generation !== this.generation) return;
+      if (
+        response.state.serverSessionId !== this.state().serverSessionId ||
+        response.revision > this.revision
+      )
+        this.apply(response);
+    } catch {
+      if (generation === this.generation) {
+        this.ready.set(false);
+        this.error.set('Conexão perdida. Tentando reconectar à partida compartilhada.');
+      }
+    } finally {
+      this.refreshing = false;
+      this.drainRefresh();
+    }
+  }
+  private drainRefresh(): void {
+    if (this.refreshQueued && !this.destroyed) {
+      this.refreshQueued = false;
+      queueMicrotask(() => {
+        void this.refresh();
+      });
+    }
+  }
+
+  private requestId(): string {
+    // crypto.randomUUID is unavailable over plain HTTP on a phone connected via LAN.
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 15) | 64;
+    bytes[8] = (bytes[8] & 63) | 128;
+    const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+    return (
+      hex.slice(0, 8) +
+      '-' +
+      hex.slice(8, 12) +
+      '-' +
+      hex.slice(12, 16) +
+      '-' +
+      hex.slice(16, 20) +
+      '-' +
+      hex.slice(20)
     );
   }
 }

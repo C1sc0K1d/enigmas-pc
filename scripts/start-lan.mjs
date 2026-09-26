@@ -11,6 +11,7 @@ const addresses = [
     ),
   ),
 ];
+// SSR must accept the LAN addresses printed below, not just localhost.
 const allowedHosts = ['localhost', '127.0.0.1', '[::1]', ...addresses];
 const root = fileURLToPath(new URL('../', import.meta.url));
 const cli = fileURLToPath(new URL('../node_modules/@angular/cli/bin/ng.js', import.meta.url));
@@ -25,6 +26,7 @@ const server = spawn(process.execPath, [cli, 'serve', '--host', '0.0.0.0', '--po
   stdio: 'inherit',
   env: { ...process.env, NG_ALLOWED_HOSTS: allowedHosts.join(',') },
 });
+// Stop the Angular child process when the host stops this launcher.
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.kill(signal));
 server.on('error', (error) => {
   console.error(error.message);
