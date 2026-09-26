@@ -1,14 +1,13 @@
+import { TerminalNetwork } from '../services/terminal-network.service';
+import { createTerminalNetworkStub } from '../testing/terminal-network.stub';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { createTerminalRoutes } from './create-terminal-routes';
-import { COMPUTERS } from '../data/computers';
+import { PUBLIC_COMPUTERS as COMPUTERS } from '../data/public-computers';
 import { Terminal } from '../components/terminal/terminal';
-import { STORAGE_KEY } from '../config/network.config';
 
 describe('Terminal page routes', () => {
-  beforeEach(() => sessionStorage.removeItem(STORAGE_KEY));
-
   it('creates redirects, one page per PC and the configured titles', () => {
     const computers = COMPUTERS.slice(0, 2);
     const routes = createTerminalRoutes(computers, {
@@ -39,3 +38,9 @@ describe('Terminal page routes', () => {
     expect(fallback.computer().id).toBe(COMPUTERS[0].id);
   });
 });
+
+beforeEach(() =>
+  TestBed.configureTestingModule({
+    providers: [{ provide: TerminalNetwork, useValue: createTerminalNetworkStub() }],
+  }),
+);

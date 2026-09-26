@@ -5,7 +5,12 @@
     >
     <span class="terminal__network"
       >REDE INTERNA
-      <span class="terminal__connection"><i class="terminal__led"></i> CONECTADO</span></span
+      <span class="terminal__connection"
+        ><i class="terminal__led"></i>
+        {{
+          network.busy() ? 'SINCRONIZANDO' : network.ready() ? 'CONECTADO' : 'DESCONECTADO'
+        }}</span
+      ></span
     >
   </header>
   <section class="terminal__computer" aria-label="Computador de enigmas">
@@ -28,7 +33,7 @@
             #computerPicker
             (change)="switchComputer(computerPicker.value)"
           >
-            @for (station of computers; track station.id) {
+            @for (station of computers(); track station.id) {
               <option [value]="station.id" [selected]="station.id === computer().id">
                 {{ station.name }}
               </option>
@@ -36,11 +41,29 @@
           </select>
         </label>
         <div class="terminal__actions">
-          <button class="terminal__button terminal__button--clear" type="button" (click)="clear()">
+          <button
+            class="terminal__button terminal__button--clear"
+            type="button"
+            (click)="clear()"
+            [disabled]="!network.ready() || network.busy()"
+          >
             Limpar
           </button>
         </div>
       </div>
+      @if (network.error()) {
+        <div class="terminal__toolbar" role="alert">
+          <span>{{ network.error() }}</span>
+          <button
+            class="terminal__button"
+            type="button"
+            (click)="network.reconnect()"
+            [disabled]="network.busy()"
+          >
+            Reconectar
+          </button>
+        </div>
+      }
       <div #screen class="terminal__screen" tabindex="0" aria-label="Histórico do terminal">
         <div class="terminal__boot">
           <p class="terminal__text terminal__version">
@@ -73,16 +96,23 @@
         >
           @for (entry of entries(); track entry.id) {
             <div class="terminal__entry">
-              <p class="terminal__text terminal__sent">
-                @if (entry.source) {
-                  <span class="terminal__prompt">RECEBIDO DE {{ entry.source }} → </span>
-                }
-                <span class="terminal__prompt">C:\{{ computer().name }}&gt;</span> {{ entry.text }}
-              </p>
-              <p class="terminal__text terminal__result">
-                <span class="terminal__result-label">{{ entry.system ? 'SISTEMA' : 'SAÍDA' }}</span
-                ><span class="terminal__result-content">{{ entry.output }}</span>
-              </p>
+              @if (entry.text) {
+                <p class="terminal__text terminal__sent">
+                  @if (entry.source) {
+                    <span class="terminal__prompt">RECEBIDO DE {{ entry.source }} → </span>
+                  }
+                  <span class="terminal__prompt">C:\{{ computer().name }}&gt;</span>
+                  {{ entry.text }}
+                </p>
+              }
+              @if (entry.output) {
+                <p class="terminal__text terminal__result">
+                  <span class="terminal__result-label">{{
+                    entry.system ? 'SISTEMA' : 'SAÍDA'
+                  }}</span
+                  ><span terminalOutput class="terminal__result-content" [entry]="entry"></span>
+                </p>
+              }
             </div>
           }
         </div>
@@ -123,6 +153,7 @@
           enterkeyhint="send"
           spellcheck="false"
           maxlength="2000"
+          [disabled]="!network.ready() || network.busy()"
           [value]="draft()"
           (input)="draft.set(field.value)"
           (keydown)="navigate($event)"
@@ -131,7 +162,7 @@
           class="terminal__button terminal__button--send"
           type="submit"
           aria-label="Enviar mensagem"
-          [disabled]="!draft().trim()"
+          [disabled]="!draft().trim() || !network.ready() || network.busy()"
         >
           Enviar <span aria-hidden="true">↵</span>
         </button>
@@ -139,11 +170,20 @@
       <footer class="terminal__statusbar">
         <span
           ><i class="terminal__led terminal__led--small"></i>
-          {{ mode() === 'acordado' ? 'ACORDADO' : 'DORMINDO' }}</span
+          {{
+            mode() === 'transe' ? 'TRANSE' : mode() === 'acordado' ? 'ACORDADO' : 'DORMINDO'
+          }}</span
         ><span
           >{{ count().toString().padStart(3, '0') }} MENSAGENS
           <span class="terminal__encoding"
-            >/ {{ mode() === 'dormindo' ? 'CODIFICAÇÃO ATIVA' : 'CONSCIÊNCIA ATIVA' }}</span
+            >/
+            {{
+              mode() === 'transe'
+                ? 'CONSCIÊNCIA EM TRANSE'
+                : mode() === 'dormindo'
+                  ? 'CODIFICAÇÃO ATIVA'
+                  : 'CONSCIÊNCIA ATIVA'
+            }}</span
           ></span
         >
       </footer>

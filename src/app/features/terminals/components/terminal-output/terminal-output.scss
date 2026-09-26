@@ -1,0 +1,7 @@
+// Paint the dot rather than inserting a character, so copying keeps the original spaces.
+.terminal-output__space {
+  display: inline-block;
+  white-space: pre;
+  background: radial-gradient(circle, currentColor 1px, transparent 1.5px) center / 1ch 1em
+    no-repeat;
+}

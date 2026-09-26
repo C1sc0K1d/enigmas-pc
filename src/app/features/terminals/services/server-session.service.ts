@@ -6,6 +6,7 @@ export class ServerSession {
     let stopped = false;
     let pending: AbortController | null = null;
     const check = async () => {
+      // Focus, reconnects, and polling can overlap; one request at a time is enough.
       if (stopped || pending) return;
       const controller = new AbortController();
       pending = controller;
@@ -27,7 +28,7 @@ export class ServerSession {
         )
           onSession(data.sessionId);
       } catch {
-        // Offline or restarting: retain the game until the server confirms its session.
+        // A dropped connection is not a reset. Wait for the server to confirm its session.
       } finally {
         window.clearTimeout(timeout);
         pending = null;
