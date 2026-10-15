@@ -41,6 +41,9 @@ export class Terminal {
   protected readonly computers = this.network.catalog;
   protected readonly entries = computed(() => this.network.session(this.computer().id).entries);
   protected readonly count = computed(() => this.network.session(this.computer().id).count);
+  protected readonly inputLocked = computed(
+    () => !!this.network.session(this.computer().id).timedResponse,
+  );
   protected readonly mode = computed(() => this.network.session(this.computer().id).mode);
   private readonly commands = computed(() => this.network.session(this.computer().id).commands);
   protected readonly draft = signal('');
@@ -98,6 +101,7 @@ export class Terminal {
   }
 
   protected switchComputer(id: string): void {
+    if (this.inputLocked()) return;
     if (this.computers().some((computer) => computer.id === id))
       void this.router.navigate(['/', id]);
   }
@@ -105,7 +109,7 @@ export class Terminal {
   protected async submit(event: Event): Promise<void> {
     event.preventDefault();
     const text = this.draft();
-    if (!text.trim()) return;
+    if (!text.trim() || this.inputLocked()) return;
     const id = this.computer().id;
     if (!(await this.network.submit(id, text))) return;
     if (this.computer().id !== id || this.draft() !== text) return;
@@ -118,6 +122,7 @@ export class Terminal {
   }
 
   protected async clear(): Promise<void> {
+    if (this.inputLocked()) return;
     const id = this.computer().id;
     if (!(await this.network.clear(id)) || this.computer().id !== id) return;
     this.draft.set('');
@@ -127,6 +132,7 @@ export class Terminal {
   }
 
   protected recall(direction: -1 | 1): void {
+    if (this.inputLocked()) return;
     const commands = this.commands();
     let cursor = this.cursor() < 0 ? commands.length : this.cursor();
     if (cursor === commands.length) this.savedDraft = this.draft();

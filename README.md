@@ -46,7 +46,7 @@ All browsers join the same shared campaign. Actions, history, modes and connecti
 
 ## How the terminals work
 
-Every computer starts **awake**. In this mode, it replies with fragments of dialogue about its identity. When it is **asleep**, it applies its cipher and sends the result through its output connection. In **trance**, it delivers a fixed sequence of six lines, then waits for another message.
+Every computer starts **awake**. In this mode, it replies with fragments of dialogue about its identity. When it is **asleep**, it applies its cipher and sends the result through its output connection. In **trance**, it waits for a player message before delivering its configured sequence. Later messages receive a fixed final reply.
 
 Initially, only these three computers are connected:
 
@@ -74,7 +74,7 @@ Type a command and submit it. Command names are case-insensitive, and spaces at 
 | `lbr_sda`        | Removes the output connection, leaving it empty.                                                                                           |
 | `acordado`       | Wakes up this computer and enables its dialogue responses.                                                                                 |
 | `dormindo`       | Puts this computer and every computer reachable through its output to sleep, including awake or locked computers.                          |
-| `transe`         | Starts this computer's six-line trance sequence.                                                                                           |
+| `transe`         | Puts the last connected computer in trance, waiting for a message.                                                                                           |
 | `/segredos`      | Lists the command names.                                                                                                                   |
 
 Connection and disconnection commands require the key of the computer where they are entered. An unlocked computer can still connect to a locked one. Existing connections work while locked.
@@ -97,13 +97,17 @@ A few details matter during play:
 
 ### Trance mode
 
-Type `transe` at a terminal to start its sequence. The first line arrives after two seconds, followed by one line every two seconds. Each computer has six lines, delivered in the order listed in the backend catalog. After the sixth line, it stays in trance and waits. Send an ordinary message to start the sequence again from the first line.
+Type `transe` to put the last computer in the output chain into trance. With no output, the command affects the local terminal. It only changes the mode: no dialogue is scheduled until a player sends an ordinary message. Cycles are rejected without changing modes.
 
-Messages sent while the sequence is running are ignored: they do not appear in history, restart the sequence, or queue another round. Repeating `transe` during a running sequence is also ignored. Other commands remain available. `acordado` stops the sequence at that terminal; `dormindo` stops it on every computer reached by that command. `limpa` clears history but lets the sequence continue.
+The first player message starts the sequence. The first line arrives two seconds after that message, followed by one line every two seconds. Public computers keep their six lines; tdo_em1 keeps its seven. Once the sequence ends, each subsequent message receives that computer's fixed final phrase after two seconds. The sequence does not replay. Repeating `transe` while already in that mode also keeps the completed state. Leaving trance and entering it again prepares a new sequence; resetting the game clears it.
+
+For remote dialogue, ordinary messages go directly to the last computer if it is in trance, without passing through the intermediate ciphers. Both the sequence and the final replies return to the terminal that sent the message.
+
+Messages sent while the sequence is running are ignored: they do not appear in history, restart the sequence, or queue another round. Repeating `transe` during a running sequence is also ignored. Remote lines appear in both the destination history and the calling terminal, prefixed with the speaker’s name. Intermediate computers keep their modes. Clearing the caller’s history does not interrupt the sequence, and disconnecting its path stops delivery there. Other commands remain available. `acordado` stops the sequence at that terminal; `dormindo` stops it on every computer reached by that command. `limpa` clears history but lets the sequence continue.
 
 The Java server controls the timing and shares each line through SSE. Reloading the page, changing terminals, or closing a browser does not start an extra sequence. Different computers can run their sequences independently. If the server is delayed, it sends the next line when it can and leaves another two seconds before the following line, rather than sending missed lines all at once.
 
-A terminal in trance does not run its cipher or forward dialogue. A cipher transmission that reaches it stops there and does not start a trance sequence. Resetting the game cancels all pending lines and restores the initial awake state.
+A terminal in trance does not run its cipher or forward dialogue. A cipher transmission that encounters an intermediate computer in trance stops there; cipher output never acts as a player message. Resetting the game cancels all pending lines and restores the initial awake state.
 
 ### Keys and routes
 
@@ -135,6 +139,35 @@ The browser receives public metadata and the results of submitted commands; it d
 
 To add a new computer, add its backend definition and public route metadata in src/app/features/terminals/data/public-computers.ts. Never put answers in public metadata.
 
+
+### Command-only terminal
+
+The terminal tdo_em1 is reached through cncta_ent tdo_em1 or cncta_sda tdo_em1 from an unlocked computer. It is absent from the public catalog and has no browser page. The API rejects it as the origin of a player command.
+
+Its introduction appears on the first successful connection in the shared game, with five seconds between lines. Clearing history, reloading, or reconnecting does not repeat it; resetting the game or restarting Spring does. It starts awake and disconnected. When a cipher transmission reaches it awake, its reply is shown at the sending terminal. It has five dialogue lines and avoids repeating the previous one.
+
+Its required route is:
+
+sr_grdabs → grd_s0nhadr → nkai_a → fnt_primdal → h_colinas → inno_m1nvl → chma_vva → caosra_st → sultao_d → tec_la → tdo_em1
+
+The All-in-One Cipher runs while asleep. Its answer is LIMIAR, accepted only after the exact eleven-computer route. The contexto command shows its riddle and route. Its completion message appears one line at a time, with three seconds between lines. Its trance sequence contains seven lines, delivered in the supplied order. Send `transe` from a computer whose output chain ends at tdo_em1, then send an ordinary message to start its dialogue. Its seven lines return to that caller at two-second intervals; subsequent messages receive its fixed final phrase.
+
+
+The first line appears immediately. The introduction takes 20 seconds to finish (five lines), and the success message takes 15 seconds (six lines). During either sequence, the calling terminal cannot send commands, clear history, recall input or switch computers through the selector. All browsers on that terminal share the lock. The server also ignores commands submitted directly to the API while delivery is active; they are not queued.
+
+The server persists which line comes next and updates the same history entry through SSE. Reloading resumes the sequence without skipping or repeating lines. Late ticks deliver only one line and schedule the next interval from that delivery. Input unlocks when the last line appears. A game reset cancels delivery and clears the lock.
+
+The success message is:
+
+```text
+A conexão não foi aberta.
+Você apenas percebeu que sempre esteve dentro dela.
+ORIGEM: INDETERMINADA
+DISTÂNCIA: NÃO APLICÁVEL
+SESSÃO REMOTA: ACEITA
+CONTROLE DE RECORRÊNCIA: DISPONÍVE
+```
+
 ## Backend connection
 
 All browser requests use /api on the Angular origin. The development proxy and the production SSR server forward them to http://127.0.0.1:8080. Set BACKEND_URL on the Angular host before starting it to use another backend address. Phones continue to open the Angular LAN address; they do not connect directly to port 8080.
@@ -146,6 +179,36 @@ For the production Node SSR server, set NG_ALLOWED_HOSTS to the explicit hostnam
 ## Cipher reference and solutions
 
 These examples match the current campaign. If you change a cipher or route, update its solution and any other routes that pass through that computer.
+
+### `tdo_em1` — the All-in-One Cipher
+
+Treat A as 0 through Z as 25. For each word, add all letter values modulo 26. This total becomes the first output letter. Replace each remaining letter with its value minus the total, also modulo 26. The original first letter contributes to the total but has no separate output position.
+
+| Input | Output |
+| --- | --- |
+| PORTA | NBEGN |
+| NBEGN | LQTVC |
+| JDGIP | PORTA |
+| A PORTA É SONHO | A NBEGN E OAZTA |
+
+Words are independent. Input ignores letter case and Latin accents; output letters are uppercase. Spaces, punctuation, numbers and other symbols keep their positions. A message containing exactly one A–Z letter, even with surrounding spaces or punctuation, returns:
+
+```text
+ERRO:
+UM FRAGMENTO NÃO DEFINE O TODO.
+```
+
+One-letter words remain valid when the message has other letters. The error stops transmission and reaches the origin without being forwarded as cipher input. It does not disconnect computers. The terminal shows only results and errors, without intermediate calculations.
+
+To recover an original word, read the total from the first encoded letter. Add it to each later letter modulo 26, then subtract the sum of those recovered letters from the total to recover the original first letter. Encoding and decoding are different operations; players only have access to encoding.
+
+The answer is **LIMIAR**. The input **PTXTLC** produces that word at tdo_em1; **PCTLXT** produces it through tec_la → tdo_em1, but this shorter route only reveals the required path. A longer phrase containing LIMIAR does not count as the answer.
+
+With all eleven computers connected in the required order and asleep, this input at sr_grdabs completes the puzzle:
+
+```text
+ACAAAYBWNGNENCNADYKDKBKZTXACAARYKPUNNENCNARYNSNQPOQNJL
+```
 
 ### `chma_vva` — the Voracious Flame Cipher
 

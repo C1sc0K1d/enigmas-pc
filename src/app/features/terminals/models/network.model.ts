@@ -20,7 +20,16 @@ export interface ComputerSession {
   commands: string[];
   count: number;
   lastPhrase: number;
-  trance?: { nextIndex: number; nextAt: number };
+  tranceCompleted?: boolean;
+  trance?: { nextIndex: number; nextAt: number; receiver?: string };
+  timedResponse?: {
+    computerId: string;
+    success: boolean;
+    nextIndex: number;
+    nextAt: number;
+    entryId: number;
+    mirroredEntryId?: number | null;
+  };
 }
 export interface NetworkState {
   serverSessionId: string | null;

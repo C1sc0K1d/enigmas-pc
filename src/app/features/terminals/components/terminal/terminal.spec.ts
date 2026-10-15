@@ -40,6 +40,52 @@ describe('Terminal presentation', () => {
     return { fixture, element, input, network, type, send, entries };
   }
 
+  it('locks interaction during timed output and unlocks without losing the draft', async () => {
+    const { network, fixture, element, input, type } = await setup();
+    await type('rascunho');
+    network.state.update((state) => ({
+      ...state,
+      computers: {
+        ...state.computers,
+        inno_m1nvl: {
+          ...state.computers['inno_m1nvl'],
+          timedResponse: {
+            computerId: 'tdo_em1',
+            success: false,
+            nextIndex: 1,
+            nextAt: 5000,
+            entryId: 0,
+          },
+        },
+      },
+    }));
+    await fixture.whenStable();
+    expect(input.disabled).toBe(true);
+    expect(element.querySelector<HTMLButtonElement>('.terminal__button--send')!.disabled).toBe(
+      true,
+    );
+    expect(element.querySelector<HTMLButtonElement>('.terminal__button--clear')!.disabled).toBe(
+      true,
+    );
+    expect(element.querySelector('select')!.disabled).toBe(true);
+    element.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await fixture.whenStable();
+    expect(network.submit).not.toHaveBeenCalled();
+    network.state.update((state) => ({
+      ...state,
+      computers: {
+        ...state.computers,
+        inno_m1nvl: { ...state.computers['inno_m1nvl'], timedResponse: undefined },
+      },
+    }));
+    await fixture.whenStable();
+    expect(input.disabled).toBe(false);
+    expect(input.value).toBe('rascunho');
+    expect(element.querySelector<HTMLButtonElement>('.terminal__button--send')!.disabled).toBe(
+      false,
+    );
+  });
+
   it('submits exact text to the service and clears the input after success', async () => {
     const { send, input, network } = await setup();
     await send('  mensagem  ');

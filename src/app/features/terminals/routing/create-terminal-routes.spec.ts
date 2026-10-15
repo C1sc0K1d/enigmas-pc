@@ -34,6 +34,9 @@ describe('Terminal page routes', () => {
     expect(sultao.computer().id).toBe('sultao_d');
     const tec = await harness.navigateByUrl('/tec_la', Terminal);
     expect(tec.computer().id).toBe('tec_la');
+    expect(COMPUTERS.some((computer) => computer.id === 'tdo_em1')).toBe(false);
+    const hidden = await harness.navigateByUrl('/tdo_em1', Terminal);
+    expect(hidden.computer().id).toBe(COMPUTERS[0].id);
     const fallback = await harness.navigateByUrl('/inexistente', Terminal);
     expect(fallback.computer().id).toBe(COMPUTERS[0].id);
   });

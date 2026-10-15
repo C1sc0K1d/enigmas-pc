@@ -30,6 +30,7 @@
           ><span class="visually-hidden">Trocar de computador</span>
           <select
             class="terminal__select"
+            [disabled]="inputLocked()"
             #computerPicker
             (change)="switchComputer(computerPicker.value)"
           >
@@ -45,7 +46,7 @@
             class="terminal__button terminal__button--clear"
             type="button"
             (click)="clear()"
-            [disabled]="!network.ready() || network.busy()"
+            [disabled]="!network.ready() || network.busy() || inputLocked()"
           >
             Limpar
           </button>
@@ -126,7 +127,7 @@
               type="button"
               aria-label="Mensagem anterior"
               (click)="recall(-1)"
-              [disabled]="!canRecallPrevious()"
+              [disabled]="!canRecallPrevious() || inputLocked()"
             >
               ↑
             </button>
@@ -135,7 +136,7 @@
               type="button"
               aria-label="Próxima mensagem"
               (click)="recall(1)"
-              [disabled]="!canRecallNext()"
+              [disabled]="!canRecallNext() || inputLocked()"
             >
               ↓
             </button>
@@ -153,7 +154,7 @@
           enterkeyhint="send"
           spellcheck="false"
           maxlength="2000"
-          [disabled]="!network.ready() || network.busy()"
+          [disabled]="!network.ready() || network.busy() || inputLocked()"
           [value]="draft()"
           (input)="draft.set(field.value)"
           (keydown)="navigate($event)"
@@ -162,7 +163,7 @@
           class="terminal__button terminal__button--send"
           type="submit"
           aria-label="Enviar mensagem"
-          [disabled]="!draft().trim() || !network.ready() || network.busy()"
+          [disabled]="!draft().trim() || !network.ready() || network.busy() || inputLocked()"
         >
           Enviar <span aria-hidden="true">↵</span>
         </button>

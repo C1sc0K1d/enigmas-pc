@@ -55,6 +55,23 @@ describe('Remote terminal state', () => {
       ],
     });
   });
+  it('does not send API commands while its terminal has timed output', async () => {
+    const locked = snapshot();
+    locked.state.computers['tec_la'].timedResponse = {
+      computerId: 'tdo_em1',
+      success: false,
+      nextIndex: 1,
+      nextAt: 5000,
+      entryId: 0,
+    };
+    api.create.mockResolvedValueOnce(locked);
+    const net = TestBed.inject(TerminalNetwork);
+    await net.initialize();
+    expect(await net.submit('tec_la', 'contexto')).toBe(false);
+    expect(await net.clear('tec_la')).toBe(false);
+    expect(api.submit).not.toHaveBeenCalled();
+  });
+
   it('joins the shared game even if this browser has an old private token', async () => {
     sessionStorage.setItem('presos-api-game-id-v1', 'old-private-game');
     const net = TestBed.inject(TerminalNetwork);

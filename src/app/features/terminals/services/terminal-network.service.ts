@@ -95,7 +95,14 @@ export class TerminalNetwork {
   }
 
   async submit(id: string, text: string): Promise<boolean> {
-    if (!text.trim() || !this.ready() || this.busy() || !this.gameId) return false;
+    if (
+      !text.trim() ||
+      !this.ready() ||
+      this.busy() ||
+      !this.gameId ||
+      this.session(id).timedResponse
+    )
+      return false;
     this.generation++;
     this.busy.set(true);
     this.error.set(null);
